@@ -139,6 +139,15 @@ TA：（care_checkin）记上了。
   [Commons 的署名要求](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia)。
   URL 可能随时间失效，建议客户端在首次使用时自行缓存。
 
+## 反馈与报错
+
+玩出问题、有想法、想加目的地，都欢迎：
+
+- **[GitHub Issues](https://github.com/shenchesilas-stack/travel-mcp/issues)**——报 bug 请带四样：你说了什么 / TA 调了哪个工具 / 返回了什么 / 你期望什么。再带一句用的什么客户端和模型（比如 Claude Desktop + Sonnet），方便复现。
+- 论坛发布帖里直接回复也行，都看。
+
+这是个用爱发电的业余项目，修得快慢看缘分，但每条都会看。数据勘误（物价过时了、店倒闭了、景点名不对）尤其欢迎——164 个地方我们也没法全走一遍。
+
 ## 设计笔记
 
 - **失忆友好**：所有状态在文件里，AI 忘了上下文也能从 `trip_here` / `wallet_status` 接着玩。
