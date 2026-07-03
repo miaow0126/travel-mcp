@@ -526,9 +526,9 @@ def trip_collect(name: str = "", line: str = "", default_id: str = "") -> str:
         trip_id = st.get("started_at", "")
         old = next((s for s in (_j(os.path.join(HOME, "souvenirs.json"), []) or []) if s.get("trip_id") == trip_id), None)
         if old:
-            done_hint = "，这趟也早收尾了——想再出发 trip_start" if st.get("done") else "——别重复带，直接下一步（日记/收尾）"
-            return _out({"ok": True, "already": True, "souvenir": old,
-                         "note": "这趟已经带过纪念品了（一趟一件）%s。" % done_hint})
+            done_hint = "，旅程也早收尾了——想再出发 trip_start" if st.get("done") else "——别重复带，直接下一步（日记/收尾）"
+            return _out({"error": "这趟已经带过纪念品了（一趟一件）%s" % done_hint,
+                         "already": True, "souvenir": old})
         if default_id == "local":
             loc = next((x for x in (_data("souvenirs_local") or []) if x["id"] == st["dest"]), None)
             if not loc or not os.path.exists(os.path.join(ASSETS, "souvenirs_local", "%s.jpg" % st["dest"])):
