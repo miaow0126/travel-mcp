@@ -134,7 +134,7 @@ def _wallet_apply(w, id_, delta, reason, xp=0):
     w["xp"] = w.get("xp", 0) + xp
     w["ledger"].append({"id": id_, "delta": round(delta), "xp": xp, "reason": reason,
                         "at": _now().isoformat(timespec="seconds")})
-    w["ledger"] = w["ledger"][-200:]
+    # 账本不截断：幂等查重靠它，截断会让 seed/老条目滑出窗口被重记（后端终审抓的刀）。单机 JSON 几百KB无所谓。
     _wallet_save(w)
     return True
 
@@ -191,6 +191,7 @@ def _pick_unused(pool, used_idx, n):
     return [pool[i] for i in take], take
 
 def _trip_price(dest, style, party):
+    style = _norm_style(style)  # 读取点也归一（后端米其林补刀同款：存量state里的野档名一起治）
     c = next((x for x in _data("costs") if x["id"] == dest), None)
     if not c:
         return 0
@@ -219,7 +220,7 @@ def _settle(st, sp, d):
                   "%s·%d天·%s" % (d["name_zh"], sp["days"], "同行" if st.get("party") != "solo" else "独自"),
                   xp=xp)
     out = {"xp": xp, "first_visit": first_visit, "spend": spend, "balance": w["balance"]}
-    if ECONOMY == "caretaker" and spend > 0:
+    if ECONOMY != "free" and spend > 0:  # caretaker 和 simple 都扣真钱，返现一视同仁（后端终审确认的漏，非设计）
         cb = round(spend * CASHBACK)
         if _wallet_apply(w, "cashback-%s" % trip_id, cb, "路上省下的零钱（旅行返现25%）"):
             out["cashback"] = cb
@@ -663,7 +664,7 @@ def care_checkin(item: str, note: str = "") -> str:
         amt = rate
         earned = _care_earned_today(w) - amt
         gd = min(round(w["balance"] * GOODDAY_INTEREST), GOODDAY_CAP)
-        interest = _wallet_apply(w, "goodday-%s" % t, gd, "好日子利息（今天也过了）")
+        interest = _wallet_apply(w, "goodday-%s" % t, gd, "好日子利息（今天也过了）") if gd > 0 else False
         return _out({"ok": True, "earned": amt, "interest": gd if interest else 0,
                      "balance": w["balance"], "today_total": earned + amt,
                      "note": "记上了。别跟TA报流水账，一句「记上了」加句人话就好。"})
