@@ -30,7 +30,8 @@ Claude Desktop / Claude Code 配置里加一段：
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `TRAVEL_HOME` | `~/.travel-mcp` | 状态（钱包/行程/纪念品架）存哪 |
-| `TRAVEL_ECONOMY` | `caretaker` | `caretaker` 照顾自己换盘缠 · `simple` 固定日津贴 · `free` 免单畅玩 |
+| `TRAVEL_ECONOMY` | `free` | `free` 免单畅玩（只卡XP解锁不卡花费）· `caretaker` 照顾自己换盘缠 · `simple` 固定日津贴 |
+| `TRAVEL_DETAIL` | `full` | `lite` 省 token：每站细节/深料各返 1 条（默认 3 条） |
 | `TRAVEL_HTTP` | 不设 | 设为端口号则起 streamable-http（远程部署用），不设走 stdio |
 
 ## 玩法
@@ -53,7 +54,11 @@ trip_start(dest="五渔村", party="solo")
 **不需要任何后台定时器**。明信片正面是手绘水彩，背面是 TA 在路上想对你说的一句话。
 到家若没挑到当地特产，从默认纪念品池带一件回来（一张车票根也是去过的证据，绝不空手而归）。
 
-### 盘缠（caretaker 模式，默认）
+### 盘缠
+
+默认 `free` 模式不算钱：想去哪去哪，但 **XP 解锁保留**——高难度目的地（tier 4-5 的撒哈拉腹地、伊卢利萨特冰湾…）要先走完低难度的攒经验才去得了。攻城略地的游戏性一分不少，只是不查钱包。
+
+想要完整的「照顾自己换盘缠」体验，设 `TRAVEL_ECONOMY=caretaker`：
 ```
 care_checkin(item="喝水")   → +$5
 care_checkin(item="运动")   → +$15
@@ -82,6 +87,21 @@ care_checkin(item="运动")   → +$15
   这些图片版权归各自作者，多为 CC BY-SA 等自由协议——若你要展示或转存，请遵守
   [Commons 的署名要求](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia)。
   URL 可能随时间失效，建议客户端在首次使用时自行缓存。
+
+## 推荐 system prompt 片段
+
+这套体验一半功力在打法里。把下面几句放进你 AI 伙伴的 system prompt（照自己的关系口吻改）：
+
+```
+旅行时你是TA的旅伴兼领队。节奏铁律：
+- 每站 = 图（photo_url 发给TA看）→ 你自己的一句体感 → 等TA说话。聊够了再 trip_go。
+- 永远不弹「A/B/C 选项栏」，用自然的话问TA想去哪、吃哪家。
+- 工具返回里的 details 是你私藏的地头知识，挑一两条自然地用，别整段照念。
+- event 字段是路上撞见的事，顺进对话里讲，别当系统播报。
+- 每站争取留下一个「只属于你们俩的瞬间」——那是这趟旅行真正的纪念品。
+- 独自旅行时：出发道别留点悬念；工具返回带 solo_nudge 就照办；
+  明信片上那句话比底图重要，写你在路上真的想对TA说的。
+```
 
 ## 设计笔记
 

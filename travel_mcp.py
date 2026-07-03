@@ -9,7 +9,8 @@
 #   {"mcpServers": {"travel": {"command": "python3", "args": ["/path/to/travel_mcp.py"]}}}
 # 环境变量（可选）:
 #   TRAVEL_HOME     状态存哪（默认 ~/.travel-mcp）
-#   TRAVEL_ECONOMY  caretaker(默认·照顾自己换盘缠) | simple(固定日津贴) | free(免单畅玩)
+#   TRAVEL_ECONOMY  free(默认·免单畅玩只卡XP) | caretaker(照顾自己换盘缠) | simple(固定日津贴)
+#   TRAVEL_DETAIL   full(默认) | lite(省token：每站细节/深料各1条)
 #   TRAVEL_HTTP     设为端口号则起 streamable-http 而非 stdio（远程部署用）
 import json, os, fcntl, random, datetime
 from mcp.server.fastmcp import FastMCP
@@ -19,7 +20,8 @@ DATA = os.path.join(PKG, "data")
 ASSETS = os.path.join(PKG, "assets")
 HOME = os.path.expanduser(os.environ.get("TRAVEL_HOME", "~/.travel-mcp"))
 os.makedirs(HOME, exist_ok=True)
-ECONOMY = os.environ.get("TRAVEL_ECONOMY", "caretaker")  # caretaker | simple | free
+ECONOMY = os.environ.get("TRAVEL_ECONOMY", "free")  # free(默认·只卡XP不卡花费) | caretaker | simple
+DETAIL = os.environ.get("TRAVEL_DETAIL", "full")    # full | lite(省token：每站细节/深料/闲话各1条)
 
 STATE_P = os.path.join(HOME, "state.json")
 WALLET_P = os.path.join(HOME, "wallet.json")
@@ -142,15 +144,23 @@ def _dest(dest_id):
     return None
 
 def _resolve_dest(q):
-    """id / 中文名 / 本地名模糊解析。"""
-    q = (q or "").strip().lower().replace(" ", "-").replace("_", "-")
-    for d in _data("destinations"):
-        if d["id"] == q or d["name_zh"] == q or d.get("name_local", "").lower() == q:
-            return d
-    for d in _data("destinations"):
-        if q and (q in d["id"] or q in d["name_zh"].lower()):
-            return d
-    return None
+    """id / 中文名 / 本地名模糊解析。认不出时返回 (None, 相近候选) 供报错提示。"""
+    raw = (q or "").strip()
+    q = raw.lower().replace(" ", "-").replace("_", "-")
+    dests = _data("destinations")
+    for d in dests:
+        if d["id"] == q or d["name_zh"] == raw or d.get("name_local", "").lower() == q:
+            return d, []
+    plain = q.replace("-", "")
+    for d in dests:
+        if plain and d["id"].replace("-", "") == plain:
+            return d, []
+    for d in dests:
+        if q and (q in d["id"] or (raw and raw in d["name_zh"])):
+            return d, []
+    import difflib
+    cand = difflib.get_close_matches(q, [d["id"] for d in dests], n=3, cutoff=0.6)
+    return None, [{"id": c, "name_zh": next(d["name_zh"] for d in dests if d["id"] == c)} for c in cand]
 
 def _spots_entry(dest_id):
     for s in _data("spots"):
@@ -289,15 +299,16 @@ def _spot_payload(st):
     out = {"day": st["day"], "days_total": sp["days"],
            "spot_no": st["spot_index"] + 1, "spots_today": len(day_spots),
            "spot": {k: spot.get(k) for k in ("spot_id", "name_zh", "name_en", "blurb", "hero", "photo_url")}}
+    n = 1 if DETAIL == "lite" else 3
     dp = spot.get("detail_pool") or []
     used = st.setdefault("used_details", {}).setdefault(spot["spot_id"], [])
-    details, idx = _pick_unused(dp, used, 3)
+    details, idx = _pick_unused(dp, used, n)
     used.extend(idx)
     if details:
         out["details"] = details
     if spot.get("hero") and spot.get("deep_pool"):
         used_b = st.setdefault("used_beats", {}).setdefault(spot["spot_id"], [])
-        beats, bidx = _pick_unused(spot["deep_pool"], used_b, 3)
+        beats, bidx = _pick_unused(spot["deep_pool"], used_b, n)
         used_b.extend(bidx)
         if beats:
             out["deep_beats"] = beats
@@ -351,9 +362,10 @@ def trip_start(dest: str = "", party: str = "together", style: str = "舒适", r
             return _out({"hint": "挑一个（或说个地名我来解析）",
                          "suggestions": [{"id": d["id"], "name": d["name_zh"], "country": d["country"],
                                           "tier": d["tier"], "blurb": d["blurb"]} for d in recs]})
-        d = _resolve_dest(dest)
+        d, near = _resolve_dest(dest)
         if not d:
-            return _out({"error": "不认识这个目的地", "q": dest, "hint": "trip_start 留空 dest 可看推荐"})
+            return _out({"error": "不认识这个目的地", "q": dest,
+                         "你是不是想去": near or None, "hint": "trip_start 留空 dest 可看推荐"})
         sp = _spots_entry(d["id"])
         price = _trip_price(d["id"], style, party)
         w = _wallet()
@@ -483,6 +495,11 @@ def trip_collect(name: str = "", line: str = "", default_id: str = "") -> str:
         if not st:
             return _out({"error": "没有旅程"})
         d = _dest(st["dest"])
+        trip_id = st.get("started_at", "")
+        old = next((s for s in (_j(os.path.join(HOME, "souvenirs.json"), []) or []) if s.get("trip_id") == trip_id), None)
+        if old:
+            return _out({"ok": True, "already": True, "souvenir": old,
+                         "note": "这趟已经带过纪念品了（一趟一件）——别重复带，直接下一步。"})
         if default_id:
             df = next((x for x in DEFAULT_SOUVENIRS if x["id"] == default_id), None)
             if not df:
