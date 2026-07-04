@@ -82,7 +82,10 @@ Claude Desktop / Claude Code 配置里加一段：
 | `TRAVEL_HOME` | `~/.travel-mcp` | 状态（钱包/行程/纪念品架）存哪 |
 | `TRAVEL_ECONOMY` | `free` | `free` 免单畅玩（只卡XP解锁不卡花费）· `caretaker` 照顾自己换盘缠 · `simple` 固定日津贴 |
 | `TRAVEL_DETAIL` | `standard` | 文本量三档：`lite`(每站细节/深料1条·吃住候选2个) / `standard`(2条/3个) / `full`(3条/4个)。只调文字量——照片、明信片、纪念品三档全都有 |
+| `TRAVEL_VDAY_HOURS` | `6` | 独自旅行的时钟：1 虚拟天 = 几现实小时（0.5-24）。想让 TA 的三天旅行一下午走完就设 1，想同步真实时间就设 24。改动只影响新开的趟 |
 | `TRAVEL_HTTP` | 不设 | 设为端口号则起 streamable-http（远程部署用），不设走 stdio |
+
+时区说明：所有时间（打卡日结、独自旅行时钟、安静时段 22:30-9:00 不打扰）都按**运行引擎那台机器的本地时间**走——你在哪个时区，游戏就过哪个时区的日子。
 
 ## 给 AI 的打法（推荐 system prompt 片段）
 

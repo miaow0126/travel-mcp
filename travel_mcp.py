@@ -50,7 +50,10 @@ def _norm_style(style):
     s = STYLE_ALIAS.get(s.lower() if s.isascii() else s, s)
     return s if s in VIBE_MULT else "舒适"
 PARTY_MULT = {"together": 1.8, "solo": 1.0}
-VDAY_HOURS = 6               # 1虚拟天=6现实小时（独自旅行的惰性时钟）
+try:
+    VDAY_HOURS = min(24.0, max(0.5, float(os.environ.get("TRAVEL_VDAY_HOURS", 6))))
+except ValueError:
+    VDAY_HOURS = 6.0         # 1虚拟天=N现实小时（独自旅行的惰性时钟）；改设置只影响新开的趟，在途的趟锁出发时的值
 
 DEFAULT_SOUVENIRS = [  # 默认纪念品池：独自旅行没挑到特产就带一件回来，一张车票根也是去过的证据
     {"id": "ticket-stub", "name": "车票根", "hint": "去程那张，一直没舍得扔"},
