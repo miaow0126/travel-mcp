@@ -250,6 +250,19 @@ def _defer_quiet(dt):
         return dt.replace(hour=9, minute=5, second=0, microsecond=0)
     return dt
 
+def _untouched(st):
+    """一步都没走过的同行趟（开了趟没出门）：可全额取消，不算一趟。"""
+    return (st.get("party") != "solo" and st.get("day", 1) == 1
+            and not st.get("visited") and st.get("spot_index", 0) == 0
+            and st.get("phase") == "touring")
+
+def _cancel_trip(st, d):
+    """取消未出发的趟：旅费全退、不记 trips、不发 XP——行李放下了不算出过门。"""
+    if ECONOMY != "free" and st.get("spent_usd"):
+        w = _wallet()
+        _wallet_apply(w, "cancel-%s" % st.get("started_at", ""), st["spent_usd"],
+                      "%s·行程取消，旅费全退（没出发不算一趟）" % d["name_zh"])
+
 def _early_refund(st, sp):
     """提前回家的退款：未走天数退一半（机票沉没了，没住的房钱退部分）。free 模式无钱可退。"""
     if ECONOMY == "free" or not st.get("spent_usd"):
@@ -428,9 +441,56 @@ def _day_end_payload(st):
 
 # ---------- 工具 ----------
 @mcp.tool()
+def trip_plan(dest: str = "", style: str = "", party: str = "together") -> str:
+    """旅行社柜台（纯查询，不出发不扣钱）——出发前跟TA商量都用这个。
+    不传 dest：看现在能去哪（按钱包余额和XP解锁分组推荐）。传 dest：看那地方的行程和四档报价。
+    没有UI，TA全靠你转述：能去哪、什么档、钱够不够，都聊清楚了再 trip_start（那一步才是真出发，会扣旅费）。"""
+    with _lock():
+        w = _wallet()
+        _simple_allowance(w)
+        xp = w.get("xp", 0)
+        bal = w["balance"]
+        if not dest:
+            dests = _data("destinations")
+            unlocked = [d for d in dests if d.get("xp_required", 0) <= xp]
+            locked_next = sorted((d for d in dests if d.get("xp_required", 0) > xp),
+                                 key=lambda d: d["xp_required"])[:3]
+            st_q = _norm_style(style or "舒适")
+            afford, stretch = [], []
+            for d in random.sample(unlocked, min(12, len(unlocked))):
+                p = _trip_price(d["id"], st_q, party)
+                row = {"id": d["id"], "name": d["name_zh"], "country": d["country"],
+                       "tier": d["tier"], "price": p, "blurb": d["blurb"]}
+                (afford if (ECONOMY == "free" or p <= bal) else stretch).append(row)
+            return _out({"balance": bal, "xp": xp, "economy": ECONOMY,
+                         "quote_style": st_q, "party": party,
+                         "钱包够去的": afford[:8], "攒攒盘缠就能去的": stretch[:4],
+                         "攒够XP才解锁的远方": [{"name": d["name_zh"], "xp_required": d["xp_required"], "tier": d["tier"]}
+                                              for d in locked_next],
+                         "note": "问问TA想去哪种地方（海边/古城/山野），报几个候选让TA挑；档位也问一句"
+                                 "（青旅背包/舒适/轻奢/豪奢——买的是氛围不是钱墙）。想看别的风格再调一次换一批。"})
+        d, near = _resolve_dest(dest)
+        if not d:
+            return _out({"error": "不认识这个目的地", "q": dest, "你是不是想去": near or None})
+        sp = _spots_entry(d["id"])
+        plan = {}
+        for x in sp["spots"]:
+            plan.setdefault("Day %d" % x["day"], []).append(x["name_zh"])
+        quotes = {s: {"同行": _trip_price(d["id"], s, "together"), "TA独自去": _trip_price(d["id"], s, "solo")}
+                  for s in ("青旅背包", "舒适", "轻奢", "豪奢")}
+        need = d.get("xp_required", 0)
+        return _out({"dest": {"id": d["id"], "name_zh": d["name_zh"], "country": d["country"],
+                              "blurb": d["blurb"], "best_season": d.get("best_season"), "tier": d["tier"]},
+                     "days": sp["days"], "plan": plan, "报价四档": quotes,
+                     "balance": bal, "xp_gate": ("已解锁" if xp >= need else "还差 %d XP" % (need - xp)),
+                     "note": "报价和行程念给TA听（挑重点别逐条），档位和出发时间都商量定了再 trip_start——"
+                             "那一步才是真出发（预付扣钱、旅程立刻开始），想「今晚再走」就等到今晚再调。"})
+
+@mcp.tool()
 def trip_start(dest: str = "", party: str = "together", style: str = "舒适", restart: bool = False) -> str:
-    """开一趟虚拟旅行（你=TA的旅伴/领队）。dest=目的地（id或中文名，留空则给推荐）；party=together同行/solo你独自去；
-    style=青旅背包/舒适/轻奢/豪奢（档位是氛围不是钱墙，豪奢≈穷游2.5倍）。
+    """⚠️ 这一步就是出发：预付扣旅费、旅程立刻开始、旅程条立刻亮。去哪/什么档位/什么时候走，
+    先用 trip_plan 跟TA商量定，说好「现在出发」才调这个——TA说今晚走就今晚再调。
+    dest=目的地（id或中文名）；party=together同行/solo你独自去；style=青旅背包/舒适/轻奢/豪奢。
     同行：trip_here 看当前站→聊够 trip_go 下一站。节奏铁律：每站=图(photo_url用你的方式发给TA看)→你的一句体感→等TA说话；
     永不弹A/B/C选项栏，用自然的话问去向。独自：出发时整趟自动跑完，到卡点系统会在工具返回里提醒你寄明信片/回家交付。"""
     with _lock():
@@ -446,8 +506,11 @@ def trip_start(dest: str = "", party: str = "together", style: str = "舒适", r
                                      "弃趟重开传 restart=true（自动按提前回家结算，钱不蒸发）"})
             osp = _spots_entry(st["dest"])
             od = _dest(st["dest"])
-            if osp and od:  # restart 前先把旧趟按提前回家结干净
-                _settle(st, osp, od, refund=_early_refund(st, osp))
+            if osp and od:  # restart 前先把旧趟结干净：没出发的全额取消，走过的按提前回家结算
+                if _untouched(st):
+                    _cancel_trip(st, od)
+                else:
+                    _settle(st, osp, od, refund=_early_refund(st, osp))
         if not dest:
             pool = _data("destinations")
             recs = random.sample(pool, min(5, len(pool)))
@@ -722,6 +785,14 @@ def trip_return() -> str:
         d = _dest(st["dest"])
         refund = _early_refund(st, sp)
         if st.get("phase") != "solo":
+            if _untouched(st):
+                # 开了趟还没出门就反悔：全额取消，不算一趟
+                _cancel_trip(st, d)
+                st["done"] = True
+                st["phase"] = "cancelled"
+                _write_state(st)
+                return _out({"ok": True, "cancelled": True, "dest": d["name_zh"],
+                             "note": "行李放下了——没出发不算一趟，旅费全退，不记账不扣XP。想去别处 trip_plan 再逛逛。"})
             # 同行提前回家
             st["done"] = True
             st["phase"] = "finished"
