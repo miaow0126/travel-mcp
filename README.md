@@ -143,6 +143,13 @@ TA：（care_checkin）记上了。
   [Commons 的署名要求](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia)。
   URL 可能随时间失效，建议客户端在首次使用时自行缓存。
 
+## 隐私
+
+- **引擎零网络调用**：只 import 本地库（json/os/fcntl/random/datetime），不联网、不定位、不知道你在哪，也没有服务器可以上传——代码就几百行，欢迎自己审。
+- **所有状态在你自己的电脑上**（`~/.travel-mcp/`）：行程、钱包、打卡、纪念品，删掉目录就是彻底删档。
+- **AI 看到的只有游戏内容**（虚拟目的地和虚拟行程），你的真实位置与本游戏无关。
+- 唯一的对外连接是景点照片的 Wikimedia 链接——你的 AI 展示图片时会向 Wikimedia 请求，和打开网页同级别。不想要可以不发图，游戏照玩。
+
 ## 反馈与报错
 
 玩出问题、有想法、想加目的地，都欢迎：
