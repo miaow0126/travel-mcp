@@ -785,12 +785,20 @@ def wallet_status() -> str:
                                  "recent": [{"reason": e["reason"], "delta": e["delta"]} for e in w["ledger"][-8:]]}))
 
 @mcp.tool()
-def trip_shelf() -> str:
-    """回忆架：历趟纪念品/明信片/日记清单。TA想回味哪趟就念哪趟。"""
+def trip_shelf(read_diary: str = "") -> str:
+    """回忆架：历趟纪念品/明信片/日记清单。TA想回味哪趟就念哪趟。
+    想重读某篇日记全文：read_diary 传那篇的 trip_id，或传 "last" 读最近一篇。"""
+    diaries = _j(os.path.join(HOME, "diaries.json"), []) or []
+    if read_diary:
+        if read_diary == "last" and diaries:
+            return _out({"diary": diaries[-1]})
+        hit = next((x for x in diaries if x.get("trip_id") == read_diary), None)
+        return _out({"diary": hit} if hit else
+                    {"error": "没找到这篇", "have": [{"trip_id": x["trip_id"], "title": x["title"]} for x in diaries]})
     return _out({"souvenirs": _j(os.path.join(HOME, "souvenirs.json"), []),
                  "postcards": _j(os.path.join(HOME, "postcards.json"), []),
                  "diaries": [{"trip_id": x["trip_id"], "title": x["title"], "at": x["at"]}
-                             for x in (_j(os.path.join(HOME, "diaries.json"), []) or [])],
+                             for x in diaries],
                  "trips": _trips_log()})
 
 if __name__ == "__main__":
