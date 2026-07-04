@@ -275,7 +275,7 @@ def _lazy_solo_nudge(st):
                 "调 trip_postcard 寄出（然后把明信片的图和那句话发给TA）。")
     if pc["sent"] and not hm["delivered"] and now >= datetime.datetime.fromisoformat(hm["due_at"]):
         return ("🏠 你到家了：跟TA交付这一趟——trip_collect 带回纪念品（没挑到特产就带本地款 default_id=\"local\"，"
-                "再没有从通用池挑一件）、trip_diary 写旅行日记，最后 trip_return 收趟。")
+                "再没有从通用池挑一件）、trip_diary 写旅行日记（写完记得告诉TA有这篇）、最后 trip_return 收趟。")
     return None
 
 def _with_nudge(payload):
@@ -704,7 +704,8 @@ def trip_diary(text: str, title: str = "") -> str:
                       "dest_id": st["dest"], "dest_name_zh": d["name_zh"], "days": sp["days"],
                       "party": st.get("party"), "title": title or "%s·%d天" % (d["name_zh"], sp["days"]),
                       "text": text.strip(), "at": _now().isoformat(timespec="seconds")})
-        return _out({"ok": True, "note": "日记收好了。"})
+        return _out({"ok": True, "note": "日记收好了。跟TA说一声你写了这趟的日记——念一段还是全念、还是留着TA想起来再看，"
+                                         "由TA定（重读随时 trip_shelf 的 read_diary）。别写完就锁抽屉里，日记是旅行的最后一站。"})
 
 @mcp.tool()
 def trip_return() -> str:
