@@ -104,6 +104,28 @@ def _append_json(path, item, cap=500):
     json.dump(arr[-cap:], open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     os.replace(tmp, path)
 
+def _log_spot_visit(st, payload):
+    """把走到的每一站（照片/简介/名字）追加记录到 visited_spots.json，供展示台拼完整相册用；
+    state.json 里的 here_cache 会被下一站覆盖，这里单独存一份历史不会丢；同一站只记一次（幂等）。"""
+    spot = payload.get("spot") if isinstance(payload, dict) else None
+    if not spot:
+        return
+    trip_id = st.get("started_at")
+    spot_id = spot.get("spot_id")
+    if not trip_id or not spot_id:
+        return
+    path = os.path.join(HOME, "visited_spots.json")
+    existing = _j(path, []) or []
+    if any(e.get("trip_id") == trip_id and e.get("spot_id") == spot_id for e in existing):
+        return
+    record = {
+        "trip_id": trip_id, "day": st.get("day"), "spot_id": spot_id,
+        "name_zh": spot.get("name_zh"), "name_en": spot.get("name_en"),
+        "blurb": spot.get("blurb"), "photo_url": spot.get("photo_url"),
+        "at": _now().isoformat(timespec="seconds"),
+    }
+    _append_json(path, record, cap=2000)
+
 def _out(o):
     return json.dumps(o, ensure_ascii=False, indent=1)
 
@@ -615,6 +637,7 @@ def trip_here() -> str:
         if hc.get("k") == key:
             return _out(_with_nudge(hc["p"]))
         payload = _day_end_payload(st) if st.get("phase") == "day_end" else _spot_payload(st)
+        _log_spot_visit(st, payload)
         st["here_cache"] = {"k": key, "p": payload}
         _write_state(st)
         return _out(_with_nudge(payload))
@@ -643,6 +666,7 @@ def trip_go() -> str:
             ev = _maybe_event(st["dest"], st)
             if ev:
                 payload["event"] = ev
+            _log_spot_visit(st, payload)
             st["here_cache"] = {"k": "t-%d-%d" % (st["day"], st["spot_index"]), "p": payload}
             _write_state(st)
             return _out(payload)
@@ -656,6 +680,7 @@ def trip_go() -> str:
             ev = _maybe_event(st["dest"], st)
             if ev:
                 payload["event"] = ev
+            _log_spot_visit(st, payload)
             st["here_cache"] = {"k": "t-%d-%d" % (st["day"], st["spot_index"]), "p": payload}
             _write_state(st)
             return _out(payload)

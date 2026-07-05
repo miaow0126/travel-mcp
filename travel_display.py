@@ -53,6 +53,10 @@ def load_state():
     return _j("state.json", {})
 
 
+def load_visited_spots():
+    return _j("visited_spots.json", [])
+
+
 def trips_index():
     trips = load_trips()
     trips = sorted(trips, key=lambda t: t.get("at", ""), reverse=True)
@@ -77,7 +81,20 @@ def trip_detail(trip_id):
     trip = next((t for t in trips if t.get("trip_id") == trip_id), None)
     diaries = [d for d in load_diaries() if d.get("trip_id") == trip_id]
     souvenirs = [s for s in load_souvenirs() if s.get("trip_id") == trip_id]
-    return {"trip": trip, "diaries": diaries, "souvenirs": souvenirs}
+    spots = [s for s in load_visited_spots() if s.get("trip_id") == trip_id]
+    spots = sorted(spots, key=lambda s: s.get("at", ""))
+    if not spots:
+        # 老行程在加相册功能前就走完了，退而求其次：用 state.json 里仅剩的最后一站顶上
+        st = load_state()
+        if st.get("started_at") == trip_id:
+            spot = (st.get("here_cache") or {}).get("p", {}).get("spot")
+            if spot:
+                spots = [{
+                    "day": st.get("day"), "spot_id": spot.get("spot_id"),
+                    "name_zh": spot.get("name_zh"), "name_en": spot.get("name_en"),
+                    "blurb": spot.get("blurb"), "photo_url": spot.get("photo_url"),
+                }]
+    return {"trip": trip, "diaries": diaries, "souvenirs": souvenirs, "spots": spots}
 
 
 def current_live_trip():
@@ -254,6 +271,31 @@ body {
 .souvenir-name { font-size: 0.78rem; font-weight: 600; margin-bottom: 4px; }
 .souvenir-line { font-size: 0.68rem; color: var(--muted); line-height: 1.5; }
 
+.spot-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.spot-gallery-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.spot-gallery-card img {
+  width: 100%;
+  height: 130px;
+  object-fit: cover;
+  display: block;
+  background: #1a2030;
+}
+.spot-gallery-body { padding: 10px 12px; }
+.spot-gallery-name { font-size: 0.85rem; font-weight: 700; margin-bottom: 2px; }
+.spot-gallery-name .en { color: var(--muted); font-weight: 400; font-size: 0.72rem; margin-left: 4px; }
+.spot-gallery-blurb { font-size: 0.72rem; color: var(--accent-soft); line-height: 1.5; }
+.spot-gallery-day { font-size: 0.62rem; color: var(--dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+
 .live-spot-card {
   display: flex;
   gap: 16px;
@@ -354,6 +396,7 @@ async function selectTrip(tripId) {
   const trip = d.trip || {};
   const diary = (d.diaries && d.diaries[0]) || null;
   const souvenirs = d.souvenirs || [];
+  const spots = d.spots || [];
 
   const live = await loadLive();
   const isLatest = trips.length && trips[0].trip_id === tripId;
@@ -388,6 +431,22 @@ async function selectTrip(tripId) {
       </div>
     </div>
   `;
+
+  if (spots.length) {
+    html += `<div class="section-label">&#128247; 沿途风光</div><div class="spot-gallery">`;
+    for (const s of spots) {
+      html += `
+        <div class="spot-gallery-card">
+          ${s.photo_url ? `<img src="${esc(s.photo_url)}" loading="lazy">` : ''}
+          <div class="spot-gallery-body">
+            <div class="spot-gallery-day">第${s.day||'?'}天</div>
+            <div class="spot-gallery-name">${esc(s.name_zh)}<span class="en">${esc(s.name_en||'')}</span></div>
+            <div class="spot-gallery-blurb">${esc(s.blurb||'')}</div>
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
 
   if (diary) {
     html += `<div class="diary-text">${esc(diary.text)}</div>`;
