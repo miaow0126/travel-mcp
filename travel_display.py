@@ -285,7 +285,8 @@ body {
 }
 .spot-gallery-card img {
   width: 100%;
-  height: 130px;
+  aspect-ratio: 16 / 9;
+  height: auto;
   object-fit: cover;
   display: block;
   background: #1a2030;
