@@ -19,6 +19,7 @@ from urllib.parse import urlparse, parse_qs
 DISPLAY_PORT = int(os.environ.get("DISPLAY_PORT", 8899))
 DATA_DIR = Path(os.environ.get("TRAVEL_DATA", "/root/travel-data"))
 ASSETS_DIR = Path(os.environ.get("TRAVEL_ASSETS", "/root/travel-mcp/assets"))
+STATIC_DIR = Path(os.environ.get("TRAVEL_STATIC", "/root/travel-mcp/data"))
 
 
 # ── 读存档 ──────────────────────────────────────────────
@@ -55,6 +56,19 @@ def load_state():
 
 def load_visited_spots():
     return _j("visited_spots.json", [])
+
+
+def resolve_dest_name(dest_id):
+    """从 travel-mcp 自带的静态目的地库里查中文名（state.json 只存 id，不存名字）。"""
+    p = STATIC_DIR / "destinations.json"
+    try:
+        dests = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return dest_id
+    for d in dests:
+        if d.get("id") == dest_id:
+            return d.get("name_zh", dest_id)
+    return dest_id
 
 
 def trips_index():
@@ -98,10 +112,14 @@ def trip_detail(trip_id):
 
 
 def current_live_trip():
-    """如果 state.json 里的行程还没走完，返回实时进度；走完了返回 None。"""
+    """如果 state.json 里的行程还没走完，返回实时进度（附目的地中文名）；走完了返回 None。
+    注意：这跟「已完成行程索引」（trips.json）是两回事——一趟新旅程开始后，在它结束、
+    被写进 trips.json 之前，只能靠这个接口看到，足迹时间轴里还找不到它。"""
     st = load_state()
     if not st or st.get("phase") == "finished" or st.get("done"):
         return None
+    st = dict(st)
+    st["dest_name_zh"] = resolve_dest_name(st.get("dest", ""))
     return st
 
 
@@ -187,6 +205,8 @@ body {
 }
 .trip-item:hover { background: var(--card-hover); }
 .trip-item.active { background: var(--card); border-left: 2px solid var(--accent); }
+.trip-item.live-entry { border-bottom-color: #4a3f1a; }
+.trip-item.live-entry .trip-date { color: var(--accent); }
 .trip-date { font-size: 0.68rem; color: var(--muted); margin-bottom: 4px; }
 .trip-dest { font-size: 0.92rem; font-weight: 600; }
 .trip-meta { font-size: 0.7rem; color: var(--accent-soft); margin-top: 4px; }
@@ -366,23 +386,77 @@ async function loadLive() {
 }
 
 async function loadTrips() {
-  const r = await fetch('/api/trips');
-  trips = await r.json();
+  const [tripsData, live] = await Promise.all([
+    fetch('/api/trips').then(r => r.json()),
+    loadLive(),
+  ]);
+  trips = tripsData;
   const el = document.getElementById('trip-list');
-  if (!trips.length) {
-    el.innerHTML = '<div class="no-trips">还没有旅行记录<br>去看看世界吧</div>';
+
+  let html = '';
+  if (live) {
+    // 进行中的旅程还没走完，不在 trips.json 索引里，单独放一个入口，不跟已完成行程混在一起判断
+    html += `
+      <div class="trip-item live-entry" onclick="selectLive()" id="ti_live">
+        <div class="trip-date">&#9203; 正在进行</div>
+        <div class="trip-dest">${esc(live.dest_name_zh || live.dest || '')}</div>
+        <div class="trip-meta">第${live.day||'?'}天</div>
+      </div>`;
+  }
+  if (!trips.length && !live) {
+    html = '<div class="no-trips">还没有旅行记录<br>去看看世界吧</div>';
+  } else {
+    html += trips.map(t => `
+      <div class="trip-item" onclick="selectTrip('${esc(t.trip_id)}')" id="ti_${esc(t.trip_id)}">
+        <div class="trip-date">${fmtDate(t.at)}</div>
+        <div class="trip-dest">${esc(t.dest_name_zh)} ${t.first_visit ? '&#10024;' : ''}</div>
+        <div class="trip-meta">${t.days}天 · ${esc(t.style||'')} · +${t.xp||0}XP</div>
+      </div>
+    `).join('');
+  }
+  el.innerHTML = html;
+
+  if (!currentId) {
+    if (live) selectLive();
+    else if (trips.length) selectTrip(trips[0].trip_id);
+  }
+}
+
+async function selectLive() {
+  currentId = '__live__';
+  document.querySelectorAll('.trip-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('ti_live');
+  if (el) el.classList.add('active');
+
+  const live = await loadLive();
+  const panel = document.getElementById('right-panel');
+  if (!live) {
+    panel.innerHTML = `<div class="empty-state"><div class="icon">&#127761;</div><div>这段旅程刚刚收尾<br>刷新一下时间轴看看</div></div>`;
     return;
   }
-  el.innerHTML = trips.map(t => `
-    <div class="trip-item" onclick="selectTrip('${esc(t.trip_id)}')" id="ti_${esc(t.trip_id)}">
-      <div class="trip-date">${fmtDate(t.at)}</div>
-      <div class="trip-dest">${esc(t.dest_name_zh)} ${t.first_visit ? '&#10024;' : ''}</div>
-      <div class="trip-meta">${t.days}天 · ${esc(t.style||'')} · +${t.xp||0}XP</div>
+  const spot = live.here_cache && live.here_cache.p && live.here_cache.p.spot;
+  let html = `<div class="live-banner">&#9203; 这段旅程还在进行中 · 第${live.day||'?'}天</div>`;
+  html += `
+    <div class="story-header">
+      <div class="story-title">${esc(live.dest_name_zh || '')}</div>
+      <div class="story-meta">
+        <span>${esc(live.party||'')}</span>
+        <span>${esc(live.style||'')}</span>
+      </div>
     </div>
-  `).join('');
-  if (trips.length && !currentId) {
-    selectTrip(trips[0].trip_id);
+  `;
+  if (spot) {
+    html += `
+      <div class="live-spot-card">
+        ${spot.photo_url ? `<img src="${esc(spot.photo_url)}" loading="lazy">` : ''}
+        <div class="live-spot-body">
+          <div class="live-spot-name">${esc(spot.name_zh)} <span style="color:var(--muted);font-weight:400">${esc(spot.name_en||'')}</span></div>
+          <div class="live-spot-blurb">${esc(spot.blurb||'')}</div>
+          <div class="live-spot-detail">${(spot.details||[]).map(esc).join('<br>')}</div>
+        </div>
+      </div>`;
   }
+  panel.innerHTML = html;
 }
 
 async function selectTrip(tripId) {
@@ -399,27 +473,7 @@ async function selectTrip(tripId) {
   const souvenirs = d.souvenirs || [];
   const spots = d.spots || [];
 
-  const live = await loadLive();
-  const isLatest = trips.length && trips[0].trip_id === tripId;
-
-  let html = '';
-  if (isLatest && live) {
-    const spot = live.here_cache && live.here_cache.p && live.here_cache.p.spot;
-    html += `<div class="live-banner">&#9203; 这段旅程还在进行中 · 第${live.day||'?'}天</div>`;
-    if (spot) {
-      html += `
-        <div class="live-spot-card">
-          ${spot.photo_url ? `<img src="${esc(spot.photo_url)}" loading="lazy">` : ''}
-          <div class="live-spot-body">
-            <div class="live-spot-name">${esc(spot.name_zh)} <span style="color:var(--muted);font-weight:400">${esc(spot.name_en||'')}</span></div>
-            <div class="live-spot-blurb">${esc(spot.blurb||'')}</div>
-            <div class="live-spot-detail">${(spot.details||[]).map(esc).join('<br>')}</div>
-          </div>
-        </div>`;
-    }
-  }
-
-  html += `
+  let html = `
     <div class="story-header">
       <div class="story-title">${esc((diary && diary.title) || trip.dest_name_zh || '')}</div>
       <div class="story-meta">
@@ -433,12 +487,13 @@ async function selectTrip(tripId) {
     </div>
   `;
 
-  if (spots.length) {
+  const photoSpots = spots.filter(s => s.photo_url);
+  if (photoSpots.length) {
     html += `<div class="section-label">&#128247; 沿途风光</div><div class="spot-gallery">`;
-    for (const s of spots) {
+    for (const s of photoSpots) {
       html += `
         <div class="spot-gallery-card">
-          ${s.photo_url ? `<img src="${esc(s.photo_url)}" loading="lazy">` : ''}
+          <img src="${esc(s.photo_url)}" loading="lazy">
           <div class="spot-gallery-body">
             <div class="spot-gallery-day">第${s.day||'?'}天</div>
             <div class="spot-gallery-name">${esc(s.name_zh)}<span class="en">${esc(s.name_en||'')}</span></div>
@@ -476,7 +531,12 @@ async function selectTrip(tripId) {
 
 loadWallet();
 loadTrips();
-setInterval(() => { loadWallet(); loadTrips(); if (currentId) selectTrip(currentId); }, 30000);
+setInterval(async () => {
+  await loadWallet();
+  await loadTrips();
+  if (currentId === '__live__') await selectLive();
+  else if (currentId) await selectTrip(currentId);
+}, 30000);
 </script>
 </body>
 </html>"""
