@@ -90,6 +90,16 @@ def trips_index():
     return out
 
 
+def load_static_spots(dest_id):
+    """读游戏自带的静态景点表（哪个目的地第几天去哪几站，是固定路线，不受随机影响）。"""
+    p = STATIC_DIR / "spots.json"
+    try:
+        arr = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return next((s for s in arr if s.get("id") == dest_id), None)
+
+
 def trip_detail(trip_id):
     trips = load_trips()
     trip = next((t for t in trips if t.get("trip_id") == trip_id), None)
@@ -97,17 +107,21 @@ def trip_detail(trip_id):
     souvenirs = [s for s in load_souvenirs() if s.get("trip_id") == trip_id]
     spots = [s for s in load_visited_spots() if s.get("trip_id") == trip_id]
     spots = sorted(spots, key=lambda s: s.get("at", ""))
-    if not spots:
-        # 老行程在加相册功能前就走完了，退而求其次：用 state.json 里仅剩的最后一站顶上
-        st = load_state()
-        if st.get("started_at") == trip_id:
-            spot = (st.get("here_cache") or {}).get("p", {}).get("spot")
-            if spot:
-                spots = [{
-                    "day": st.get("day"), "spot_id": spot.get("spot_id"),
-                    "name_zh": spot.get("name_zh"), "name_en": spot.get("name_en"),
-                    "blurb": spot.get("blurb"), "photo_url": spot.get("photo_url"),
-                }]
+    if not spots and trip and trip.get("party") != "solo":
+        # 老行程在加相册功能前就走完了，没有逐站记录：同行模式的路线是固定的（去哪几站不随机，
+        # 随机的只是每站配的小知识文字），可以直接从静态景点表按「目的地+走过天数」精确重建，
+        # 不用依赖随时会被下一趟覆盖的 state.json。
+        entry = load_static_spots(trip.get("dest"))
+        if entry:
+            days_walked = trip.get("days_walked") or trip.get("days") or 0
+            for sp in entry.get("spots", []):
+                if sp.get("day", 0) <= days_walked:
+                    spots.append({
+                        "day": sp.get("day"), "spot_id": sp.get("spot_id"),
+                        "name_zh": sp.get("name_zh"), "name_en": sp.get("name_en"),
+                        "blurb": sp.get("blurb"), "photo_url": sp.get("photo_url"),
+                    })
+            spots.sort(key=lambda s: s.get("day") or 0)
     return {"trip": trip, "diaries": diaries, "souvenirs": souvenirs, "spots": spots}
 
 
@@ -368,7 +382,10 @@ function esc(s) {
 }
 function fmtDate(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
+  // 服务器（VPS）系统时钟是 UTC，时间戳没带时区标记；这里显式当 UTC 解析，
+  // 交给浏览器自动换算成你本地时区（比如北京时间 = UTC+8）显示，不然会晚 8 小时。
+  const hasTZ = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso);
+  const d = new Date(hasTZ ? iso : iso + 'Z');
   return d.toLocaleString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
