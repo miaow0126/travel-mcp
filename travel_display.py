@@ -58,6 +58,10 @@ def load_visited_spots():
     return _j("visited_spots.json", [])
 
 
+def load_specialties_shown():
+    return _j("specialties_shown.json", [])
+
+
 def resolve_dest_name(dest_id):
     """从 travel-mcp 自带的静态目的地库里查中文名（state.json 只存 id，不存名字）。"""
     p = STATIC_DIR / "destinations.json"
@@ -100,6 +104,20 @@ def load_static_spots(dest_id):
     return next((s for s in arr if s.get("id") == dest_id), None)
 
 
+def load_static_specialties(dest_id):
+    """读游戏自带的静态特产表。这份是按目的地固定返回的整份清单（不像景点/闲话那样随机抽），
+    所以历史行程不需要靠埋点补，直接按目的地查表就能精确重建——比景点相册的兜底更简单。"""
+    p = STATIC_DIR / "specialties.json"
+    try:
+        arr = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    entry = next((s for s in arr if s.get("id") == dest_id), None)
+    if not entry:
+        return []
+    return [x for x in entry.get("items", []) if x.get("photo_url")]
+
+
 def trip_detail(trip_id):
     trips = load_trips()
     trip = next((t for t in trips if t.get("trip_id") == trip_id), None)
@@ -122,7 +140,15 @@ def trip_detail(trip_id):
                         "blurb": sp.get("blurb"), "photo_url": sp.get("photo_url"),
                     })
             spots.sort(key=lambda s: s.get("day") or 0)
-    return {"trip": trip, "diaries": diaries, "souvenirs": souvenirs, "spots": spots}
+    specialty_rec = next((s for s in load_specialties_shown() if s.get("trip_id") == trip_id), None)
+    if specialty_rec:
+        specialties = specialty_rec.get("items", [])
+    elif trip:
+        # 没有埋点快照（老行程）：特产清单不随机、只跟目的地绑定，直接查静态表精确重建
+        specialties = load_static_specialties(trip.get("dest"))
+    else:
+        specialties = []
+    return {"trip": trip, "diaries": diaries, "souvenirs": souvenirs, "spots": spots, "specialties": specialties}
 
 
 def current_live_trip():
@@ -330,6 +356,7 @@ body {
 .spot-gallery-name .en { color: var(--muted); font-weight: 400; font-size: 0.72rem; margin-left: 4px; }
 .spot-gallery-blurb { font-size: 0.72rem; color: var(--accent-soft); line-height: 1.5; }
 .spot-gallery-day { font-size: 0.62rem; color: var(--dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+.spot-gallery-day.kind { color: var(--sea); }
 
 .live-spot-card {
   display: flex;
@@ -489,6 +516,7 @@ async function selectTrip(tripId) {
   const diary = (d.diaries && d.diaries[0]) || null;
   const souvenirs = d.souvenirs || [];
   const spots = d.spots || [];
+  const specialties = (d.specialties || []).filter(s => s.photo_url);
 
   let html = `
     <div class="story-header">
@@ -537,6 +565,22 @@ async function selectTrip(tripId) {
           <div class="souvenir-info">
             <div class="souvenir-name">${esc(s.name)}</div>
             <div class="souvenir-line">${esc(s.line||'')}</div>
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (specialties.length) {
+    html += `<div class="section-label">&#127865; 当地特产小图鉴</div><div class="spot-gallery">`;
+    for (const s of specialties) {
+      html += `
+        <div class="spot-gallery-card">
+          <img src="${esc(s.photo_url)}" loading="lazy">
+          <div class="spot-gallery-body">
+            <div class="spot-gallery-day kind">${esc(s.kind||'')}</div>
+            <div class="spot-gallery-name">${esc(s.name_zh)}<span class="en">${esc(s.name_en||'')}</span></div>
+            <div class="spot-gallery-blurb">${esc(s.blurb||'')}</div>
           </div>
         </div>`;
     }

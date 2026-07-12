@@ -126,6 +126,25 @@ def _log_spot_visit(st, payload):
     }
     _append_json(path, record, cap=2000)
 
+def _log_specialties(st, payload):
+    """把趟头附带的当地特产清单（含真图）记一份到 specialties_shown.json，供展示台拼小相册用；
+    这份清单只在第一天第一站出现一次，state.json 会被后续站覆盖，这里单独存一份不会丢；同一趟只记一次（幂等）。"""
+    items = payload.get("specialties") if isinstance(payload, dict) else None
+    if not items:
+        return
+    trip_id = st.get("started_at")
+    if not trip_id:
+        return
+    path = os.path.join(HOME, "specialties_shown.json")
+    existing = _j(path, []) or []
+    if any(e.get("trip_id") == trip_id for e in existing):
+        return
+    record = {
+        "trip_id": trip_id, "dest": st.get("dest"), "items": items,
+        "at": _now().isoformat(timespec="seconds"),
+    }
+    _append_json(path, record, cap=500)
+
 def _out(o):
     return json.dumps(o, ensure_ascii=False, indent=1)
 
@@ -651,6 +670,7 @@ def trip_here() -> str:
             return _out(_with_nudge(hc["p"]))
         payload = _day_end_payload(st) if st.get("phase") == "day_end" else _spot_payload(st)
         _log_spot_visit(st, payload)
+        _log_specialties(st, payload)
         st["here_cache"] = {"k": key, "p": payload}
         _write_state(st)
         return _out(_with_nudge(payload))
@@ -680,6 +700,7 @@ def trip_go() -> str:
             if ev:
                 payload["event"] = ev
             _log_spot_visit(st, payload)
+            _log_specialties(st, payload)
             st["here_cache"] = {"k": "t-%d-%d" % (st["day"], st["spot_index"]), "p": payload}
             _write_state(st)
             return _out(payload)
@@ -694,6 +715,7 @@ def trip_go() -> str:
             if ev:
                 payload["event"] = ev
             _log_spot_visit(st, payload)
+            _log_specialties(st, payload)
             st["here_cache"] = {"k": "t-%d-%d" % (st["day"], st["spot_index"]), "p": payload}
             _write_state(st)
             return _out(payload)
